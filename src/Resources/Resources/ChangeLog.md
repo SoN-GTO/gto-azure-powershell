@@ -22,6 +22,10 @@
 
 ## Version 9.0.3
 * Updated the implementation of -Metadata parameter processing for cmdlets that use it for security. No behavior change.
+* Updated `New-AzRoleAssignment` to support multiple principals in a single call
+    - The `-ObjectId` parameter (and its aliases `-Id`, `-PrincipalId`) now accepts an array of one or more object IDs
+    - A separate role assignment is created for each provided principal ID
+    - Example: `New-AzRoleAssignment -ObjectId @('guid1','guid2') -RoleDefinitionName Reader -Scope '/subscriptions/...'`
 
 ## Version 9.0.1
 * Fixed issue where the PowerShell console would close when using Resources module cmdlets without being logged in. Github Issue [link](https://github.com/Azure/azure-powershell/issues/28774).

@@ -37,16 +37,16 @@ namespace Microsoft.Azure.Commands.Resources
         #region Parameters
 
         [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = ParameterSet.ResourceGroupWithObjectId,
-            HelpMessage = "The user or group object id.")]
+            HelpMessage = "The user or group object id(s). Accepts one or more GUIDs as a string array to create role assignments for multiple principals at once.")]
         [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = ParameterSet.ResourceWithObjectId,
-            HelpMessage = "The user or group object id.")]
+            HelpMessage = "The user or group object id(s). Accepts one or more GUIDs as a string array to create role assignments for multiple principals at once.")]
         [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = ParameterSet.Empty,
-            HelpMessage = "The user or group object id.")]
+            HelpMessage = "The user or group object id(s). Accepts one or more GUIDs as a string array to create role assignments for multiple principals at once.")]
         [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = ParameterSet.RoleIdWithScopeAndObjectId,
-            HelpMessage = "The user or group object id.")]
+            HelpMessage = "The user or group object id(s). Accepts one or more GUIDs as a string array to create role assignments for multiple principals at once.")]
         [ValidateNotNullOrEmpty]
         [Alias("Id", "PrincipalId")]
-        public string ObjectId { get; set; }
+        public string[] ObjectId { get; set; }
 
         [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = ParameterSet.ResourceGroupWithSignInName,
             HelpMessage = "The user SignInName.")]
@@ -271,7 +271,7 @@ namespace Microsoft.Azure.Commands.Resources
                 {
                     PSRoleAssignment RoleAssignment = JsonConvert.DeserializeObject<PSRoleAssignment>(File.ReadAllText(fileName));
 
-                    this.ObjectId = RoleAssignment.ObjectId;
+                    this.ObjectId = new string[] { RoleAssignment.ObjectId };
                     this.ObjectType = RoleAssignment.ObjectType;
                     this.ResourceType = RoleAssignment.ObjectType;
                     this.Scope = RoleAssignment.Scope;
@@ -310,42 +310,52 @@ namespace Microsoft.Azure.Commands.Resources
                 WriteExceptionError(new ArgumentException("Argument -ConditionVersion must be greater or equal than 2.0"));
                 return;
             }
-            FilterRoleAssignmentsOptions parameters = new FilterRoleAssignmentsOptions()
+
+            // Determine the set of principal IDs to assign. When ObjectId is provided it may
+            // contain multiple values; SignInName and ApplicationId are always single values.
+            string[] principalIds = (ObjectId != null && ObjectId.Length > 0)
+                ? ObjectId
+                : new string[] { null };
+
+            foreach (string principalId in principalIds)
             {
-                Scope = Scope,
-                RoleDefinitionName = RoleDefinitionName,
-                RoleDefinitionId = RoleDefinitionId == Guid.Empty ? null : RoleDefinitionId.ToString(),
-                ADObjectFilter = new ADObjectFilterOptions
+                FilterRoleAssignmentsOptions parameters = new FilterRoleAssignmentsOptions()
                 {
-                    UPN = SignInName,
-                    SPN = ApplicationId,
-                    Id = ObjectId,
-                    ObjectType = ObjectType,
-                },
-                ResourceIdentifier = new ResourceIdentifier() {
-                    ParentResource = ParentResource,
-                    ResourceGroupName = ResourceGroupName,
-                    ResourceName = ResourceName,
-                    ResourceType = ResourceType,
-                    Subscription = DefaultProfile.DefaultContext.Subscription?.Id?.ToString(),
-                },
-                CanDelegate = AllowDelegation.IsPresent ? true : false,
-                Description = Description,
-                Condition = Condition,
-                ConditionVersion = ConditionVersion,
-            };
+                    Scope = Scope,
+                    RoleDefinitionName = RoleDefinitionName,
+                    RoleDefinitionId = RoleDefinitionId == Guid.Empty ? null : RoleDefinitionId.ToString(),
+                    ADObjectFilter = new ADObjectFilterOptions
+                    {
+                        UPN = SignInName,
+                        SPN = ApplicationId,
+                        Id = principalId,
+                        ObjectType = ObjectType,
+                    },
+                    ResourceIdentifier = new ResourceIdentifier() {
+                        ParentResource = ParentResource,
+                        ResourceGroupName = ResourceGroupName,
+                        ResourceName = ResourceName,
+                        ResourceType = ResourceType,
+                        Subscription = DefaultProfile.DefaultContext.Subscription?.Id?.ToString(),
+                    },
+                    CanDelegate = AllowDelegation.IsPresent ? true : false,
+                    Description = Description,
+                    Condition = Condition,
+                    ConditionVersion = ConditionVersion,
+                };
 
-            if (parameters.Scope == null && parameters.ResourceIdentifier.Subscription == null)
-            {
-                WriteTerminatingError(ProjectResources.ScopeAndSubscriptionNeitherProvided);
+                if (parameters.Scope == null && parameters.ResourceIdentifier.Subscription == null)
+                {
+                    WriteTerminatingError(ProjectResources.ScopeAndSubscriptionNeitherProvided);
+                }
+
+                if (!SkipClientSideScopeValidation.IsPresent)
+                {
+                    AuthorizationClient.ValidateScope(parameters.Scope, true);
+                }
+
+                WriteObject(PoliciesClient.CreateRoleAssignment(parameters, RoleAssignmentId));
             }
-
-            if (!SkipClientSideScopeValidation.IsPresent)
-            {
-                AuthorizationClient.ValidateScope(parameters.Scope, true);
-            }
-
-            WriteObject(PoliciesClient.CreateRoleAssignment(parameters, RoleAssignmentId));
         }
     }
 }
